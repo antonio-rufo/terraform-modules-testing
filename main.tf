@@ -56,6 +56,39 @@ module "ec2_sg" {
   }
 }
 
+module "rds_sg" {
+  source = "terraform-aws-modules/security-group/aws"
+
+  vpc_id      = module.vpc.vpc_id
+  name        = "RDS-SG"
+  description = "security group for RDS DB"
+
+  egress_cidr_blocks = ["0.0.0.0/0"]
+  egress_with_cidr_blocks = [
+    {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      description = "All"
+      cidr_blocks = "0.0.0.0/0"
+    },
+  ]
+
+  ingress_cidr_blocks = ["0.0.0.0/0"]
+  ingress_with_cidr_blocks = [
+    {
+      from_port   = 3306
+      to_port     = 3306
+      protocol    = "tcp"
+      description = "RDS ports"
+      cidr_blocks = "0.0.0.0/0"
+    },
+  ]
+  tags = {
+    Name = "RDS-SG"
+  }
+}
+
 module "ec2_cluster" {
   source  = "terraform-aws-modules/ec2-instance/aws"
   version = "~> 2.0"
@@ -72,4 +105,43 @@ module "ec2_cluster" {
     Terraform   = "true"
     Environment = "dev"
   }
+}
+
+module "db" {
+  source  = "terraform-aws-modules/rds/aws"
+  version = "~> 2.0"
+
+  identifier = "wordpress"
+
+  engine            = "mysql"
+  engine_version    = "8.0.16"
+  instance_class    = "db.t2.micro"
+  allocated_storage = 20
+
+  name     = "wordpress"
+  username = "test"
+  password = "test123$%"
+  port     = "3306"
+
+  iam_database_authentication_enabled = true
+
+  vpc_security_group_ids = ["${module.rds_sg.this_security_group_id}"]
+
+  tags = {
+    Owner       = "user"
+    Environment = "dev"
+  }
+
+  # DB subnet group
+  subnet_ids = module.vpc.private_subnets
+
+  # DB parameter group
+  family = "mysql8.0"
+
+  # DB option group
+  major_engine_version = "8.0"
+
+  maintenance_window = "Mon:00:00-Mon:03:00"
+  backup_window      = "03:00-06:00"
+
 }
