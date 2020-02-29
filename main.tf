@@ -9,7 +9,6 @@ module "vpc" {
   public_subnets  = ["10.0.4.0/24", "10.0.5.0/24", "10.0.6.0/24"]
 
   enable_nat_gateway = true
-  enable_vpn_gateway = true
 
   tags = {
     Terraform   = "true"
@@ -17,34 +16,60 @@ module "vpc" {
   }
 }
 
-module "web_server_sg" {
-  source = "terraform-aws-modules/security-group/aws//modules/http-80"
+module "ec2_sg" {
+  source = "terraform-aws-modules/security-group/aws"
 
-  name        = "web-server"
-  description = "Security group for web-server with HTTP ports open within VPC"
   vpc_id      = module.vpc.vpc_id
+  name        = "EC2-SG"
+  description = "security group for ec2 instances"
+
+  egress_cidr_blocks = ["0.0.0.0/0"]
+  egress_with_cidr_blocks = [
+    {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      description = "All"
+      cidr_blocks = "0.0.0.0/0"
+    },
+  ]
 
   ingress_cidr_blocks = ["0.0.0.0/0"]
+  ingress_with_cidr_blocks = [
+    {
+      from_port   = 80
+      to_port     = 80
+      protocol    = "tcp"
+      description = "http ports"
+      cidr_blocks = "0.0.0.0/0"
+    },
+    {
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      description = "SSH ports"
+      cidr_blocks = "0.0.0.0/0"
+    },
+  ]
+  tags = {
+    Name = "EC2-SG"
+  }
 }
 
 module "ec2_cluster" {
-  source                 = "terraform-aws-modules/ec2-instance/aws"
-  version                = "~> 2.0"
+  source  = "terraform-aws-modules/ec2-instance/aws"
+  version = "~> 2.0"
 
-  name                   = "my-cluster"
-  instance_count         = 2
+  name           = "my-cluster"
+  instance_count = 2
 
   ami                    = "ami-0f767afb799f45102"
   instance_type          = "t2.micro"
+  vpc_security_group_ids = ["${module.ec2_sg.this_security_group_id}"]
   subnet_id              = module.vpc.public_subnets[0]
-  vpc_security_group_ids = ["sg-077dee4d4d5c36f2a"]
 
   tags = {
     Terraform   = "true"
     Environment = "dev"
   }
-}
-
-output "sg_id" {
-  value = module.web_server_sg.this_security_group_id
 }
