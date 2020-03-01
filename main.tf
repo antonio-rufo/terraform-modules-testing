@@ -89,21 +89,36 @@ module "rds_sg" {
   }
 }
 
-module "ec2_cluster" {
-  source  = "terraform-aws-modules/ec2-instance/aws"
-  version = "~> 2.0"
+module "elb_sg" {
+  source = "terraform-aws-modules/security-group/aws"
 
-  name           = "my-cluster"
-  instance_count = 2
+  vpc_id      = module.vpc.vpc_id
+  name        = "ELB-SG"
+  description = "security group for load balancer"
 
-  ami                    = "ami-0f767afb799f45102"
-  instance_type          = "t2.micro"
-  vpc_security_group_ids = ["${module.ec2_sg.this_security_group_id}"]
-  subnet_id              = module.vpc.public_subnets[0]
+  egress_cidr_blocks = ["0.0.0.0/0"]
+  egress_with_cidr_blocks = [
+    {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      description = "All"
+      cidr_blocks = "0.0.0.0/0"
+    },
+  ]
 
+  ingress_cidr_blocks = ["0.0.0.0/0"]
+  ingress_with_cidr_blocks = [
+    {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      description = "All"
+      cidr_blocks = "0.0.0.0/0"
+    },
+  ]
   tags = {
-    Terraform   = "true"
-    Environment = "dev"
+    Name = "ELB-SG"
   }
 }
 
@@ -123,8 +138,7 @@ module "db" {
   password = "test123$%"
   port     = "3306"
 
-  iam_database_authentication_enabled = true
-
+  skip_final_snapshot    = "true"
   vpc_security_group_ids = ["${module.rds_sg.this_security_group_id}"]
 
   tags = {
@@ -144,4 +158,113 @@ module "db" {
   maintenance_window = "Mon:00:00-Mon:03:00"
   backup_window      = "03:00-06:00"
 
+}
+
+module "elb_http" {
+  source  = "terraform-aws-modules/elb/aws"
+  version = "~> 2.0"
+
+  name = "elb-example"
+
+  subnets         = module.vpc.public_subnets
+  security_groups = ["${module.elb_sg.this_security_group_id}"]
+  internal        = false
+
+  listener = [
+    {
+      instance_port     = "80"
+      instance_protocol = "HTTP"
+      lb_port           = "80"
+      lb_protocol       = "HTTP"
+    },
+  ]
+
+  health_check = {
+    target              = "HTTP:80/healthy.html"
+    interval            = 30
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    timeout             = 5
+  }
+  cross_zone_load_balancing   = true
+  connection_draining         = true
+  connection_draining_timeout = 400
+
+  tags = {
+    Owner       = "user"
+    Environment = "dev"
+  }
+}
+
+module "asg" {
+  source  = "terraform-aws-modules/autoscaling/aws"
+  version = "~> 3.0"
+
+  name = "service"
+
+  # Launch configuration
+  lc_name = "example-lc"
+
+  image_id        = "ami-0f767afb799f45102"
+  instance_type   = "t2.micro"
+  security_groups = ["${module.ec2_sg.this_security_group_id}"]
+
+  user_data = file(var.ASG_USER_DATA_WPSTP)
+
+  key_name = aws_key_pair.mykeypair.key_name
+
+  # ebs_block_device = [
+  #   {
+  #     device_name           = "/dev/xvdz"
+  #     volume_type           = "gp2"
+  #     volume_size           = "50"
+  #     delete_on_termination = true
+  #   },
+  # ]
+  #
+  # root_block_device = [
+  #   {
+  #     volume_size = "50"
+  #     volume_type = "gp2"
+  #   },
+  # ]
+
+  # Auto scaling group
+  asg_name                  = "example-asg"
+  vpc_zone_identifier       = module.vpc.public_subnets
+  min_size                  = 0
+  max_size                  = 1
+  desired_capacity          = 1
+  wait_for_capacity_timeout = 0
+
+  health_check_grace_period = 300
+  health_check_type         = "ELB"
+  load_balancers            = ["${module.elb_http.this_elb_id}"]
+  force_delete              = true
+
+  tags = [
+    {
+      key                 = "Environment"
+      value               = "dev"
+      propagate_at_launch = true
+    },
+    {
+      key                 = "Project"
+      value               = "megasecret"
+      propagate_at_launch = true
+    },
+  ]
+
+  tags_as_map = {
+    extra_tag1 = "extra_value1"
+    extra_tag2 = "extra_value2"
+  }
+}
+
+resource "aws_key_pair" "mykeypair" {
+  key_name   = "mykey"
+  public_key = file(var.PATH_TO_PUBLIC_KEY)
+  lifecycle {
+    ignore_changes = [public_key]
+  }
 }

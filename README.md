@@ -11,10 +11,18 @@ Terraform code that creates:
 - Security Groups
   - EC2 security group
   - RDS security group
+  - ELB security group
 
-- EC2 instance
+- ELB
+  - Associated with the ELB security group
+  - Public listening Load Balancer on port 80
+  - Will forward traffic to targets in Autoscaling Group
+
+- AutoScaling Group (ASG)
+  - Automatically will create EC2 instances basing on Launch configuration
+  - Flexible using scripts folder
+  - Create EC2 instance with key (pre-requisite)
   - Associated with the EC2 security group
-  - Public Subnets
 
 - RDS Database
   - Associated with the RDS security group
@@ -23,5 +31,14 @@ Terraform code that creates:
 External resources modules used:
 - VPC
 - SG
-- EC2
+- ASG
+- ELB
 - RDS
+
+Steps:
+
+- Create new AWS account
+- Create new IAM user with Programmatic Access
+- Using credentials, create the private.auto.tfvars
+- Create your keypair in folder. Run: ssh-keygen -f mykey
+- Run Terraform (init, plan, and apply)
