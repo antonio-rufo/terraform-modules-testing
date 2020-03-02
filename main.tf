@@ -41,15 +41,15 @@ module "ec2_sg" {
       to_port     = 80
       protocol    = "tcp"
       description = "http ports"
-      cidr_blocks = "0.0.0.0/0"
+      cidr_blocks = "10.0.0.0/16"
     },
-    {
-      from_port   = 22
-      to_port     = 22
-      protocol    = "tcp"
-      description = "SSH ports"
-      cidr_blocks = "0.0.0.0/0"
-    },
+    # {
+    #   from_port   = 22
+    #   to_port     = 22
+    #   protocol    = "tcp"
+    #   description = "SSH ports"
+    #   cidr_blocks = "10.0.0.0/16"
+    # },
   ]
   tags = {
     Name = "EC2-SG"
@@ -122,43 +122,43 @@ module "elb_sg" {
   }
 }
 
-module "db" {
-  source  = "terraform-aws-modules/rds/aws"
-  version = "~> 2.0"
-
-  identifier = "wordpress"
-
-  engine            = "mysql"
-  engine_version    = "8.0.16"
-  instance_class    = "db.t2.micro"
-  allocated_storage = 20
-
-  name     = "wordpress"
-  username = "test"
-  password = "test123$%"
-  port     = "3306"
-
-  skip_final_snapshot    = "true"
-  vpc_security_group_ids = ["${module.rds_sg.this_security_group_id}"]
-
-  tags = {
-    Owner       = "user"
-    Environment = "dev"
-  }
-
-  # DB subnet group
-  subnet_ids = module.vpc.private_subnets
-
-  # DB parameter group
-  family = "mysql8.0"
-
-  # DB option group
-  major_engine_version = "8.0"
-
-  maintenance_window = "Mon:00:00-Mon:03:00"
-  backup_window      = "03:00-06:00"
-
-}
+# module "db" {
+#   source  = "terraform-aws-modules/rds/aws"
+#   version = "~> 2.0"
+#
+#   identifier = "wordpress"
+#
+#   engine            = "mysql"
+#   engine_version    = "8.0.16"
+#   instance_class    = "db.t2.micro"
+#   allocated_storage = 20
+#
+#   name     = "wordpress"
+#   username = "test"
+#   password = "test123$%"
+#   port     = "3306"
+#
+#   skip_final_snapshot    = "true"
+#   vpc_security_group_ids = ["${module.rds_sg.this_security_group_id}"]
+#
+#   tags = {
+#     Owner       = "user"
+#     Environment = "dev"
+#   }
+#
+#   # DB subnet group
+#   subnet_ids = module.vpc.private_subnets
+#
+#   # DB parameter group
+#   family = "mysql8.0"
+#
+#   # DB option group
+#   major_engine_version = "8.0"
+#
+#   maintenance_window = "Mon:00:00-Mon:03:00"
+#   backup_window      = "03:00-06:00"
+#
+# }
 
 module "elb_http" {
   source  = "terraform-aws-modules/elb/aws"
@@ -238,9 +238,11 @@ module "asg" {
   wait_for_capacity_timeout = 0
 
   health_check_grace_period = 300
-  health_check_type         = "ELB"
-  load_balancers            = ["${module.elb_http.this_elb_id}"]
-  force_delete              = true
+  health_check_type         = "EC2"
+  # load_balancers            = ["${module.alb.this_lb_id}"]
+  force_delete = true
+
+  # target_group_arns = ["${module.alb.this_lb_id}"]
 
   tags = [
     {
@@ -267,4 +269,109 @@ resource "aws_key_pair" "mykeypair" {
   lifecycle {
     ignore_changes = [public_key]
   }
+}
+
+module "alb" {
+  source  = "terraform-aws-modules/alb/aws"
+  version = "~> 5.0"
+
+  name = "my-alb"
+
+  load_balancer_type = "application"
+
+  vpc_id          = module.vpc.vpc_id
+  subnets         = module.vpc.public_subnets
+  security_groups = ["${module.elb_sg.this_security_group_id}"]
+
+  # access_logs = {
+  #   bucket = "my-alb-logs"
+  # }
+
+  target_groups = [
+    {
+      name_prefix      = "test"
+      backend_protocol = "HTTP"
+      backend_port     = 80
+      target_type      = "instance"
+    }
+  ]
+
+  # https_listeners = [
+  #   {
+  #     port               = 443
+  #     protocol           = "HTTPS"
+  #     certificate_arn    = "arn:aws:iam::123456789012:server-certificate/test_cert-123456789012"
+  #     target_group_index = 0
+  #   }
+  # ]
+
+  http_tcp_listeners = [
+    {
+      port               = 80
+      protocol           = "HTTP"
+      target_group_index = 0
+    }
+  ]
+
+  tags = {
+    Environment = "Test"
+  }
+}
+
+### ADDED ON STUFF
+
+module "redirect_sg" {
+  source = "terraform-aws-modules/security-group/aws"
+
+  vpc_id      = module.vpc.vpc_id
+  name        = "Redirect-SG"
+  description = "security group for ec2 instances for redirection"
+
+  egress_cidr_blocks = ["0.0.0.0/0"]
+  egress_with_cidr_blocks = [
+    {
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      description = "HTTPS Only"
+      cidr_blocks = "0.0.0.0/0"
+    },
+  ]
+
+  ingress_cidr_blocks = ["0.0.0.0/0"]
+  ingress_with_cidr_blocks = [
+    {
+      from_port   = 80
+      to_port     = 80
+      protocol    = "tcp"
+      description = "http ports"
+      cidr_blocks = "10.0.0.0/16"
+    },
+  ]
+  tags = {
+    Name = "Redirect-SG"
+  }
+}
+
+module "ec2_cluster" {
+  source  = "terraform-aws-modules/ec2-instance/aws"
+  version = "~> 2.0"
+
+  name           = "my-cluster"
+  instance_count = 1
+
+  ami                    = "ami-0f767afb799f45102"
+  instance_type          = "t2.micro"
+  vpc_security_group_ids = ["${module.redirect_sg.this_security_group_id}"]
+  subnet_ids             = module.vpc.public_subnets
+
+  tags = {
+    Terraform   = "true"
+    Environment = "dev"
+  }
+}
+
+resource "aws_eip" "this" {
+  vpc      = true
+  instance = module.ec2_cluster.id[0]
 }
