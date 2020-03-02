@@ -345,7 +345,7 @@ module "redirect_sg" {
       to_port     = 80
       protocol    = "tcp"
       description = "http ports"
-      cidr_blocks = "10.0.0.0/16"
+      cidr_blocks = "0.0.0.0/0"
     },
     {
       from_port   = 443
@@ -384,4 +384,8 @@ module "ec2_cluster" {
 resource "aws_eip" "this" {
   vpc      = true
   instance = module.ec2_cluster.id[0]
+
+  tags = {
+    Name = "Redirect Elastic IP"
+  }
 }

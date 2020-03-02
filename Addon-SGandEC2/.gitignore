@@ -1,5 +1,0 @@
-private.auto.tfvars
-.terraform/
-*tfstate*
-backend.tf
-mykey*
