@@ -330,10 +330,10 @@ module "redirect_sg" {
   egress_cidr_blocks = ["0.0.0.0/0"]
   egress_with_cidr_blocks = [
     {
-      from_port   = 443
-      to_port     = 443
-      protocol    = "tcp"
-      description = "HTTPS Only"
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      description = "All"
       cidr_blocks = "0.0.0.0/0"
     },
   ]
@@ -346,6 +346,13 @@ module "redirect_sg" {
       protocol    = "tcp"
       description = "http ports"
       cidr_blocks = "10.0.0.0/16"
+    },
+    {
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      description = "HTTPS Only"
+      cidr_blocks = "0.0.0.0/0"
     },
   ]
   tags = {
@@ -364,6 +371,9 @@ module "ec2_cluster" {
   instance_type          = "t2.micro"
   vpc_security_group_ids = ["${module.redirect_sg.this_security_group_id}"]
   subnet_ids             = module.vpc.public_subnets
+
+  user_data = file(var.ASG_USER_DATA_WPSTP)
+  key_name  = aws_key_pair.mykeypair.key_name
 
   tags = {
     Terraform   = "true"
